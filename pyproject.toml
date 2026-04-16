@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tron-preflight-demo"
+version = "0.1.0"
+description = "CLI demo: AI agent purchases API access via x402 on TRON Nile testnet with ICME Preflight verification"
+requires-python = ">=3.10,<3.13"
+
+dependencies = [
+    "tvm-x402[all]",
+    "eth-account",
+    "httpx>=0.25.0",
+    "rich>=13.0.0",
+    "python-dotenv",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "scripts*"]
