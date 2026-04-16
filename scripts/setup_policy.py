@@ -15,20 +15,20 @@ from dotenv import load_dotenv
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+load_dotenv()
+
+from scripts.utils import print_header
 from src.config import ICME_API_KEY, TREASURY_POLICY
 from src.preflight import PreflightClient
 
 
-async def main():
+async def main() -> None:
     if not ICME_API_KEY:
         print("Error: ICME_API_KEY not set in .env")
         print("Get one at: POST https://api.icme.io/v1/createUserCard")
         sys.exit(1)
 
-    print("=" * 60)
-    print("  Compile Treasury Policy via Preflight /v1/makeRules")
-    print("=" * 60)
-    print()
+    print_header("Compile Treasury Policy via Preflight /v1/makeRules")
     print("Policy text:")
     print("-" * 40)
     print(TREASURY_POLICY)
@@ -44,10 +44,8 @@ async def main():
         sys.exit(1)
 
     print()
-    print("=" * 60)
-    print(f"  Policy compiled successfully!")
-    print(f"  Policy ID: {policy_id}")
-    print("=" * 60)
+    print_header("Policy compiled successfully!")
+    print(f"Policy ID: {policy_id}")
     print()
     print("Add this to your .env file:")
     print(f"  ICME_POLICY_ID={policy_id}")

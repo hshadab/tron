@@ -6,8 +6,10 @@ before the x402 payment flow can work.
 Usage: python scripts/approve_allowance.py
 """
 
+import logging
 import os
 import sys
+import time
 
 from dotenv import load_dotenv
 
@@ -19,24 +21,26 @@ load_dotenv()
 from tronpy import Tron
 from tronpy.keys import PrivateKey
 
+from scripts.utils import print_header
 from src.config import (
+    DEFAULT_FEE_LIMIT_SUN,
+    MAX_UINT256,
     NILE_USDT_CONTRACT,
     PAYMENT_PERMIT_ADDRESS,
     TRON_PRIVATE_KEY,
     TRON_WALLET_ADDRESS,
-    USDT_DECIMALS,
+    TX_CONFIRM_DELAY_SECONDS,
 )
 
+logger = logging.getLogger(__name__)
 
-def main():
+
+def main() -> None:
     if not TRON_PRIVATE_KEY or not TRON_WALLET_ADDRESS:
         print("Error: TRON_PRIVATE_KEY and TRON_WALLET_ADDRESS must be set in .env")
         sys.exit(1)
 
-    print("=" * 60)
-    print("  Approve USDT Allowance for x402 PaymentPermit")
-    print("=" * 60)
-    print()
+    print_header("Approve USDT Allowance for x402 PaymentPermit")
     print(f"Agent wallet:          {TRON_WALLET_ADDRESS}")
     print(f"USDT contract:         {NILE_USDT_CONTRACT}")
     print(f"PaymentPermit spender: {PAYMENT_PERMIT_ADDRESS}")
@@ -46,14 +50,11 @@ def main():
     priv = PrivateKey(bytes.fromhex(TRON_PRIVATE_KEY))
     contract = client.get_contract(NILE_USDT_CONTRACT)
 
-    # Approve max uint256 allowance (standard pattern)
-    max_allowance = 2**256 - 1
-
     print("Sending approve transaction...")
     txn = (
-        contract.functions.approve(PAYMENT_PERMIT_ADDRESS, max_allowance)
+        contract.functions.approve(PAYMENT_PERMIT_ADDRESS, MAX_UINT256)
         .with_owner(TRON_WALLET_ADDRESS)
-        .fee_limit(100_000_000)
+        .fee_limit(DEFAULT_FEE_LIMIT_SUN)
         .build()
         .sign(priv)
     )
@@ -66,8 +67,7 @@ def main():
 
     # Wait and check result
     print("Waiting for confirmation...")
-    import time
-    time.sleep(5)
+    time.sleep(TX_CONFIRM_DELAY_SECONDS)
 
     try:
         info = client.get_transaction_info(tx_id)
@@ -76,8 +76,9 @@ def main():
             print("[OK] Allowance approved successfully.")
         else:
             print(f"[WARN] Transaction result: {receipt}")
-    except Exception:
-        print(f"[INFO] Check transaction on Nile explorer:")
+    except Exception as e:
+        logger.warning("Could not fetch transaction info: %s", e)
+        print("[INFO] Check transaction on Nile explorer:")
         print(f"  https://nile.tronscan.org/#/transaction/{tx_id}")
 
     print()

@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from pydantic import BaseModel
-
 from x402.facilitator import X402Facilitator
 from x402.mechanisms.facilitator import UptoTronFacilitatorMechanism
 from x402.signers.facilitator import TronFacilitatorSigner
@@ -51,15 +50,11 @@ def create_facilitator_app() -> FastAPI:
 
     @app.post("/verify")
     async def verify(request: VerifyRequest):
-        return await facilitator.verify(
-            request.paymentPayload, request.paymentRequirements
-        )
+        return await facilitator.verify(request.paymentPayload, request.paymentRequirements)
 
     @app.post("/settle")
     async def settle(request: SettleRequest):
-        return await facilitator.settle(
-            request.paymentPayload, request.paymentRequirements
-        )
+        return await facilitator.settle(request.paymentPayload, request.paymentRequirements)
 
     @app.get("/health")
     async def health():

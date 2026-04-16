@@ -73,7 +73,7 @@ Preflight compiles this into formal SMT-LIB2 logic once, then evaluates every ac
 ## Requirements
 
 - Python 3.10 - 3.12 (tvm-x402 requires this range)
-- An ICME API key ($5 one-time, includes 325 credits)
+- An ICME API key (see step 4)
 - TRON Nile testnet wallets (free from faucet)
 
 ## Setup
@@ -81,7 +81,7 @@ Preflight compiles this into formal SMT-LIB2 logic once, then evaluates every ac
 ### 1. Install
 
 ```bash
-cd /home/hshadab/tron
+git clone https://github.com/hshadab/tron.git && cd tron
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e .
@@ -111,9 +111,37 @@ curl -X POST https://api.icme.io/v1/createUserCard \
   -d '{"username": "tron-demo"}'
 ```
 
-Complete the Stripe checkout ($5, includes 325 credits). Save the API key to `.env`.
+Complete the Stripe checkout ($5, includes 500 credits). Save the API key to `.env`.
 
-### 5. Compile the treasury policy (one-time, 300 credits)
+### 5. Top up credits (if needed)
+
+Credits can be purchased by sending USDC on Base. Call the top-up endpoint to get a deposit address:
+
+```bash
+curl -s -X POST https://api.icme.io/v1/topUp \
+  -H "X-API-Key: $ICME_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"amount_usd": 5}' | jq .
+```
+
+Send exactly the requested amount in USDC on Base to the `payTo` address returned, then confirm:
+
+```bash
+curl -s -X POST https://api.icme.io/v1/topUp \
+  -H "X-API-Key: $ICME_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"amount_usd": 5, "stripe_payment_intent_id": "INTENT_ID_FROM_ABOVE"}' | jq .
+```
+
+| Deposit | Credits | Bonus |
+|---------|---------|-------|
+| $5 | 500 | — |
+| $10 | 1,050 | +5% |
+| $25 | 2,750 | +10% |
+| $50 | 5,750 | +15% |
+| $100 | 12,000 | +20% |
+
+### 6. Compile the treasury policy (one-time, 300 credits)
 
 ```bash
 python scripts/setup_policy.py
@@ -121,7 +149,7 @@ python scripts/setup_policy.py
 
 This streams the policy through Preflight's `/v1/makeRules` endpoint and returns a `policy_id`. Save it to `.env`.
 
-### 6. Approve USDT allowance
+### 7. Approve USDT allowance
 
 ```bash
 python scripts/approve_allowance.py
@@ -129,7 +157,7 @@ python scripts/approve_allowance.py
 
 The agent wallet must approve the x402 PaymentPermit contract to spend its USDT.
 
-### 7. Run the demo
+### 8. Run the demo
 
 ```bash
 python run.py
@@ -144,7 +172,7 @@ Copy `.env.example` to `.env` and fill in:
 | Variable | Description |
 |---|---|
 | `ICME_API_KEY` | Preflight API key (from step 4) |
-| `ICME_POLICY_ID` | Compiled policy ID (from step 5) |
+| `ICME_POLICY_ID` | Compiled policy ID (from step 6) |
 | `TRON_PRIVATE_KEY` | Agent wallet private key, hex (from step 2) |
 | `TRON_WALLET_ADDRESS` | Agent wallet address (from step 2) |
 | `VENDOR_ADDRESS` | Vendor wallet address (from step 2) |
@@ -155,34 +183,43 @@ Copy `.env.example` to `.env` and fill in:
 
 | Item | Cost |
 |---|---|
-| ICME account setup | $5.00 (includes 325 credits) |
+| ICME account setup | $5.00 (includes 500 credits) |
 | Policy compilation | 300 credits (one-time) |
-| 3 verification checks | 3 credits |
+| Each verification check | 1 credit ($0.01) |
 | TRON Nile testnet | Free |
-| **Total** | **$5.00** |
+| **Total for first run** | **$5.00** |
 
-After initial setup, each additional demo run costs 3 credits ($0.03). The remaining 22 credits support about 7 more runs.
+After initial setup, each demo run costs 3 credits ($0.03). The remaining 197 credits support about 65 more runs. Additional credits can be purchased via USDC on Base (see step 5).
 
 ## Project Structure
 
 ```
 tron/
 ├── run.py                      # Entry point
-├── pyproject.toml              # Dependencies
+├── pyproject.toml              # Dependencies and tool config
+├── requirements.txt            # Pinned dependency versions
 ├── .env.example                # Env var template
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # Lint (ruff) + test (pytest) CI
 ├── scripts/
 │   ├── setup_wallet.py         # Generate 3 Nile testnet wallets
 │   ├── setup_policy.py         # Compile treasury policy via Preflight
-│   └── approve_allowance.py    # Approve USDT spending for x402
-└── src/
-    ├── config.py               # Constants, env vars, policy text, scenarios
-    ├── preflight.py            # ICME Preflight API client
-    ├── tron_client.py          # tronpy wrapper for balance checks
-    ├── x402_flow.py            # x402 client payment flow (tvm-x402)
-    ├── vendor_server.py        # Local x402-protected weather API
-    ├── facilitator_server.py   # Local x402 facilitator for Nile
-    ├── display.py              # Rich terminal output
-    └── demo.py                 # Main orchestrator
+│   ├── approve_allowance.py    # Approve USDT spending for x402
+│   └── utils.py                # Shared script helpers
+├── src/
+│   ├── config.py               # Constants, env vars, policy text, scenarios
+│   ├── preflight.py            # ICME Preflight API client
+│   ├── tron_client.py          # tronpy wrapper for balance checks
+│   ├── x402_flow.py            # x402 client payment flow (tvm-x402)
+│   ├── vendor_server.py        # Local x402-protected weather API
+│   ├── facilitator_server.py   # Local x402 facilitator for Nile
+│   ├── display.py              # Rich terminal output
+│   └── demo.py                 # Main orchestrator
+└── tests/
+    ├── test_config.py           # Config and scenario tests
+    ├── test_display.py          # Display formatting tests
+    └── test_preflight.py        # Preflight client tests
 ```
 
 ## Built With

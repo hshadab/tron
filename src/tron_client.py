@@ -1,7 +1,6 @@
 """tronpy wrapper for Nile testnet — balance checks and USDT operations."""
 
 from tronpy import Tron
-from tronpy.providers import HTTPProvider
 
 from src.config import NILE_USDT_CONTRACT, USDT_DECIMALS
 
@@ -9,7 +8,7 @@ from src.config import NILE_USDT_CONTRACT, USDT_DECIMALS
 class TronNileClient:
     """Read-only TRON Nile client for balance queries."""
 
-    def __init__(self, private_key: str, wallet_address: str):
+    def __init__(self, private_key: str, wallet_address: str) -> None:
         self.private_key = private_key
         self.wallet_address = wallet_address
         self.client = Tron(network="nile")
@@ -19,7 +18,7 @@ class TronNileClient:
         """Return TRC-20 USDT balance (human-readable float)."""
         addr = address or self.wallet_address
         raw = self._usdt.functions.balanceOf(addr)
-        return raw / (10 ** USDT_DECIMALS)
+        return raw / (10**USDT_DECIMALS)
 
     def get_trx_balance(self, address: str | None = None) -> float:
         """Return native TRX balance (human-readable float)."""

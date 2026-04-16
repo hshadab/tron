@@ -5,11 +5,11 @@ Runs on localhost:8402.
 """
 
 from fastapi import FastAPI, Request
-from x402.server import X402Server
-from x402.fastapi import x402_protected
 from x402.facilitator import FacilitatorClient
+from x402.fastapi import x402_protected
+from x402.server import X402Server
 
-from src.config import VENDOR_ADDRESS, FACILITATOR_SERVER_URL
+from src.config import FACILITATOR_SERVER_URL, VENDOR_ADDRESS
 
 
 def create_vendor_app() -> FastAPI:

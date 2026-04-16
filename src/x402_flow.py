@@ -2,9 +2,9 @@
 
 import httpx
 from x402.clients import X402Client, X402HttpClient
+from x402.encoding import decode_payment_payload
 from x402.mechanisms.client import UptoTronClientMechanism
 from x402.signers.client import TronClientSigner
-from x402.encoding import decode_payment_payload
 from x402.types import SettleResponse
 
 from src.config import VENDOR_SERVER_URL
@@ -13,13 +13,13 @@ from src.config import VENDOR_SERVER_URL
 class X402PaymentFlow:
     """Executes an x402 payment against a local vendor server on Nile."""
 
-    def __init__(self, private_key: str, network: str = "tron:nile"):
+    def __init__(self, private_key: str, network: str = "tron:nile") -> None:
         self.private_key = private_key
         self.network = network
         self._client: X402Client | None = None
         self._signer: TronClientSigner | None = None
 
-    def _ensure_client(self):
+    def _ensure_client(self) -> None:
         """Lazy-init the X402Client and signer."""
         if self._client is not None:
             return

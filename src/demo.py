@@ -1,41 +1,46 @@
 """Main orchestrator — runs all 3 scenarios sequentially."""
 
 import asyncio
-import os
-import signal
-import sys
 import multiprocessing
-import time
+import os
+import sys
 
+import httpx
 import uvicorn
 from rich.console import Console
 
 from src.config import (
+    DEFAULT_FEE_LIMIT_SUN,
+    FACILITATOR_PRIVATE_KEY,
+    FACILITATOR_SERVER_PORT,
     ICME_API_KEY,
     ICME_POLICY_ID,
+    SERVER_STARTUP_DELAY_SECONDS,
     TRON_PRIVATE_KEY,
     TRON_WALLET_ADDRESS,
     VENDOR_ADDRESS,
-    FACILITATOR_PRIVATE_KEY,
     VENDOR_SERVER_PORT,
-    FACILITATOR_SERVER_PORT,
-    VENDOR_SERVER_URL,
     get_scenarios,
 )
+from src.display import DemoDisplay
 from src.preflight import PreflightClient
 from src.tron_client import TronNileClient
 from src.x402_flow import X402PaymentFlow
-from src.display import DemoDisplay
 
 console = Console()
 
 
-def _check_env():
+def _check_env() -> None:
     """Validate required environment variables."""
     missing = []
-    for var in ("ICME_API_KEY", "ICME_POLICY_ID", "TRON_PRIVATE_KEY",
-                "TRON_WALLET_ADDRESS", "VENDOR_ADDRESS",
-                "FACILITATOR_PRIVATE_KEY"):
+    for var in (
+        "ICME_API_KEY",
+        "ICME_POLICY_ID",
+        "TRON_PRIVATE_KEY",
+        "TRON_WALLET_ADDRESS",
+        "VENDOR_ADDRESS",
+        "FACILITATOR_PRIVATE_KEY",
+    ):
         if not os.getenv(var):
             missing.append(var)
     if missing:
@@ -45,18 +50,20 @@ def _check_env():
         sys.exit(1)
 
 
-def _run_facilitator():
+def _run_facilitator() -> None:
     """Run the facilitator server in a subprocess."""
     # Set env var so TronFacilitatorSigner picks up the facilitator key
     os.environ["TRON_PRIVATE_KEY"] = FACILITATOR_PRIVATE_KEY
     from src.facilitator_server import create_facilitator_app
+
     app = create_facilitator_app()
     uvicorn.run(app, host="127.0.0.1", port=FACILITATOR_SERVER_PORT, log_level="warning")
 
 
-def _run_vendor():
+def _run_vendor() -> None:
     """Run the vendor server in a subprocess."""
     from src.vendor_server import create_vendor_app
+
     app = create_vendor_app()
     uvicorn.run(app, host="127.0.0.1", port=VENDOR_SERVER_PORT, log_level="warning")
 
@@ -71,8 +78,11 @@ def _start_servers() -> tuple[multiprocessing.Process, multiprocessing.Process]:
     vendor_proc = multiprocessing.Process(target=_run_vendor, daemon=True)
     vendor_proc.start()
 
-    # Give servers time to start
-    time.sleep(3)
+    # Give servers time to start (blocking is intentional here —
+    # subprocesses run outside the event loop)
+    import time
+
+    time.sleep(SERVER_STARTUP_DELAY_SECONDS)
     console.print("  [dim]Servers started.[/dim]")
     return facilitator_proc, vendor_proc
 
@@ -102,8 +112,11 @@ async def _run_scenario(
     display.info("Running Preflight relevance screening...")
     try:
         relevance = await preflight.check_relevance(scenario["action_text"])
-    except Exception as e:
-        display.error(f"Relevance check failed: {e}")
+    except httpx.HTTPStatusError as e:
+        display.error(f"Relevance check HTTP error: {e.response.status_code}")
+        relevance = {"should_check": True, "error": str(e)}
+    except httpx.RequestError as e:
+        display.error(f"Relevance check network error: {e}")
         relevance = {"should_check": True, "error": str(e)}
 
     display.preflight_screening(relevance)
@@ -118,8 +131,12 @@ async def _run_scenario(
     display.info("Running full 3-solver consensus verification...")
     try:
         check_result = await preflight.check_action(scenario["action_text"])
-    except Exception as e:
-        display.error(f"Consensus check failed: {e}")
+    except httpx.HTTPStatusError as e:
+        display.error(f"Consensus check HTTP error: {e.response.status_code}")
+        result_record["actual"] = "ERROR"
+        return result_record
+    except httpx.RequestError as e:
+        display.error(f"Consensus check network error: {e}")
         result_record["actual"] = "ERROR"
         return result_record
 
@@ -147,6 +164,14 @@ async def _run_scenario(
                     display.settlement_fallback(tx_hash, scenario["amount"], scenario["recipient"])
                 else:
                     display.error("Fallback transfer also failed")
+        except httpx.RequestError as e:
+            display.error(f"x402 payment network error: {e}")
+            display.info("Attempting direct TRC-20 fallback transfer...")
+            tx_hash = _fallback_transfer(tron, scenario["amount"], scenario["recipient"])
+            if tx_hash:
+                display.settlement_fallback(tx_hash, scenario["amount"], scenario["recipient"])
+            else:
+                display.error("Fallback transfer also failed")
         except Exception as e:
             display.error(f"x402 payment failed: {e}")
             display.info("Attempting direct TRC-20 fallback transfer...")
@@ -177,8 +202,10 @@ async def _run_scenario(
                 display.info("Verifying ZK proof...")
                 verification = await preflight.verify_proof(proof_id)
                 display.proof_verification(verification)
-        except Exception as e:
-            display.error(f"Proof polling/verification failed: {e}")
+        except httpx.HTTPStatusError as e:
+            display.error(f"Proof polling/verification HTTP error: {e.response.status_code}")
+        except httpx.RequestError as e:
+            display.error(f"Proof polling/verification network error: {e}")
 
     return result_record
 
@@ -187,16 +214,17 @@ def _fallback_transfer(tron: TronNileClient, amount: float, recipient: str) -> s
     """Direct TRC-20 USDT transfer as fallback when x402 flow fails."""
     try:
         from tronpy.keys import PrivateKey
+
         from src.config import NILE_USDT_CONTRACT, USDT_DECIMALS
 
         priv = PrivateKey(bytes.fromhex(tron.private_key))
         contract = tron.client.get_contract(NILE_USDT_CONTRACT)
-        raw_amount = int(amount * (10 ** USDT_DECIMALS))
+        raw_amount = int(amount * (10**USDT_DECIMALS))
 
         txn = (
             contract.functions.transfer(recipient, raw_amount)
             .with_owner(tron.wallet_address)
-            .fee_limit(100_000_000)
+            .fee_limit(DEFAULT_FEE_LIMIT_SUN)
             .build()
             .sign(priv)
         )
@@ -207,7 +235,7 @@ def _fallback_transfer(tron: TronNileClient, amount: float, recipient: str) -> s
         return None
 
 
-async def run_demo():
+async def run_demo() -> None:
     """Run all 3 scenarios sequentially."""
     _check_env()
 

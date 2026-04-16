@@ -8,6 +8,8 @@ Usage: python scripts/setup_wallet.py
 
 from tronpy.keys import PrivateKey
 
+from scripts.utils import print_header
+
 
 def generate_wallet(label: str) -> dict:
     """Generate a random TRON wallet."""
@@ -20,11 +22,8 @@ def generate_wallet(label: str) -> dict:
     }
 
 
-def main():
-    print("=" * 60)
-    print("  TRON Nile Testnet Wallet Generator")
-    print("=" * 60)
-    print()
+def main() -> None:
+    print_header("TRON Nile Testnet Wallet Generator")
 
     wallets = [
         generate_wallet("Agent"),
@@ -51,10 +50,7 @@ def main():
     print()
 
     # Funding instructions
-    print("=" * 60)
-    print("  FUNDING INSTRUCTIONS")
-    print("=" * 60)
-    print()
+    print_header("FUNDING INSTRUCTIONS")
     print("Visit the Nile faucet to claim test tokens:")
     print("  https://nileex.io/join/getJoinPage")
     print()
@@ -66,9 +62,9 @@ def main():
 
     print()
     print("Required balances:")
-    print(f"  Agent       — needs USDT (for payments) + TRX (for energy/bandwidth)")
-    print(f"  Vendor      — just receives payments, no funding needed")
-    print(f"  Facilitator — needs TRX (for gas on x402 settlement)")
+    print("  Agent       — needs USDT (for payments) + TRX (for energy/bandwidth)")
+    print("  Vendor      — just receives payments, no funding needed")
+    print("  Facilitator — needs TRX (for gas on x402 settlement)")
     print()
     print("After funding, run:  python scripts/approve_allowance.py")
 
