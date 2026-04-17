@@ -49,24 +49,29 @@ def create_facilitator_app() -> FastAPI:
     """Create the facilitator FastAPI app."""
     app = FastAPI(title="x402 Facilitator (Nile)", lifespan=lifespan)
 
-    @app.get("/supported")
+    @app.get("/supported", tags=["facilitator"])
     def supported():
+        """List payment schemes and networks this facilitator supports."""
         return facilitator.supported()
 
-    @app.post("/verify")
+    @app.post("/verify", tags=["facilitator"])
     async def verify(request: VerifyRequest):
+        """Verify a signed x402 payment payload is well-formed and valid."""
         return await facilitator.verify(request.paymentPayload, request.paymentRequirements)
 
-    @app.post("/settle")
+    @app.post("/settle", tags=["facilitator"])
     async def settle(request: SettleRequest):
+        """Submit the signed payment on-chain and return the settlement receipt."""
         return await facilitator.settle(request.paymentPayload, request.paymentRequirements)
 
-    @app.post("/fee/quote")
+    @app.post("/fee/quote", tags=["facilitator"])
     async def fee_quote(request: FeeQuoteRequest):
+        """Return a fee quote for a given payment requirement + permit context."""
         return await facilitator.fee_quote(request.accept, request.paymentPermitContext)
 
-    @app.get("/health")
+    @app.get("/health", tags=["health"])
     async def health():
+        """Liveness probe."""
         return {"status": "ok"}
 
     return app

@@ -7,7 +7,7 @@ from x402.mechanisms.client import UptoTronClientMechanism
 from x402.signers.client import TronClientSigner
 from x402.types import SettleResponse
 
-from src.config import VENDOR_SERVER_URL
+from src.config import VENDOR_SERVER_URL, X402_PAYMENT_TIMEOUT
 
 
 class X402PaymentFlow:
@@ -38,7 +38,7 @@ class X402PaymentFlow:
         self._ensure_client()
         url = vendor_url or f"{VENDOR_SERVER_URL}/weather"
 
-        async with httpx.AsyncClient(timeout=60) as http_client:
+        async with httpx.AsyncClient(timeout=X402_PAYMENT_TIMEOUT) as http_client:
             client = X402HttpClient(http_client, self._client)
             response = await client.get(url)
 

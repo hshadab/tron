@@ -5,11 +5,8 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from src.preflight import (
-    PROOF_POLL_INTERVAL_SECONDS,
-    PROOF_POLL_TIMEOUT_SECONDS,
-    PreflightClient,
-)
+from src.config import PROOF_POLL_INTERVAL_SECONDS, PROOF_POLL_TIMEOUT_CLI
+from src.preflight import PreflightClient
 
 
 @pytest.fixture
@@ -29,8 +26,8 @@ def test_client_headers_have_content_type(client):
 
 def test_poll_constants():
     assert PROOF_POLL_INTERVAL_SECONDS > 0
-    assert PROOF_POLL_TIMEOUT_SECONDS > 0
-    assert PROOF_POLL_TIMEOUT_SECONDS > PROOF_POLL_INTERVAL_SECONDS
+    assert PROOF_POLL_TIMEOUT_CLI > 0
+    assert PROOF_POLL_TIMEOUT_CLI > PROOF_POLL_INTERVAL_SECONDS
 
 
 @pytest.mark.asyncio

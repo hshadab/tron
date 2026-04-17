@@ -7,12 +7,16 @@ from typing import TypedDict
 
 import httpx
 
-from src.config import PREFLIGHT_BASE_URL
+from src.config import (
+    HTTP_LONG_TIMEOUT,
+    HTTP_SHORT_TIMEOUT,
+    HTTP_STREAM_TIMEOUT,
+    PREFLIGHT_BASE_URL,
+    PROOF_POLL_INTERVAL_SECONDS,
+    PROOF_POLL_TIMEOUT_CLI,
+)
 
 logger = logging.getLogger(__name__)
-
-PROOF_POLL_INTERVAL_SECONDS = 1
-PROOF_POLL_TIMEOUT_SECONDS = 120
 
 
 class RelevanceResult(TypedDict, total=False):
@@ -105,7 +109,7 @@ class PreflightClient:
         """POST /v1/checkRelevance — free screening.
         Returns dict with keys like: relevance, should_check, matched_variables, etc.
         """
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=HTTP_SHORT_TIMEOUT) as client:
             return await self._post_sse_or_json(
                 client,
                 f"{PREFLIGHT_BASE_URL}/checkRelevance",
@@ -119,7 +123,7 @@ class PreflightClient:
         Returns dict with keys like: check_id, result (SAT/UNSAT), detail,
         llm_result, ar_result, z3_result, zk_proof_id, zk_proof_url, etc.
         """
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=HTTP_LONG_TIMEOUT) as client:
             return await self._post_sse_or_json(
                 client,
                 f"{PREFLIGHT_BASE_URL}/checkIt",
@@ -131,7 +135,7 @@ class PreflightClient:
     async def poll_proof(
         self,
         proof_id: str,
-        timeout: int = PROOF_POLL_TIMEOUT_SECONDS,
+        timeout: int = PROOF_POLL_TIMEOUT_CLI,
     ) -> ProofResult:
         """GET /v1/proof/{id} — poll every 5s until proof is ready.
         Returns dict with: proof_id, policy_hash, result, valid, trace_length, etc.
@@ -141,7 +145,7 @@ class PreflightClient:
         url = f"{PREFLIGHT_BASE_URL}/proof/{proof_id}"
         deadline = time.monotonic() + timeout
 
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=HTTP_SHORT_TIMEOUT) as client:
             while time.monotonic() < deadline:
                 resp = await client.get(url, headers=self._headers)
                 if resp.status_code == 200:
@@ -158,7 +162,7 @@ class PreflightClient:
         """POST /v1/verifyProof — public proof verification (no API key needed).
         Returns dict with: valid, policy_hash, claimed_result, verify_ms, etc.
         """
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=HTTP_SHORT_TIMEOUT) as client:
             resp = await client.post(
                 f"{PREFLIGHT_BASE_URL}/verifyProof",
                 headers={"Content-Type": "application/json"},
@@ -181,7 +185,7 @@ class PreflightClient:
         policy_id = None
 
         async with (
-            httpx.AsyncClient(timeout=300) as client,
+            httpx.AsyncClient(timeout=HTTP_STREAM_TIMEOUT) as client,
             client.stream(
                 "POST",
                 f"{PREFLIGHT_BASE_URL}/makeRules",

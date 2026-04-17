@@ -20,7 +20,7 @@ def create_vendor_app() -> FastAPI:
     facilitator = FacilitatorClient(base_url=FACILITATOR_SERVER_URL)
     server.add_facilitator(facilitator)
 
-    @app.get("/weather")
+    @app.get("/weather", tags=["vendor"])
     @x402_protected(
         server=server,
         price="1 USDT",
@@ -28,6 +28,7 @@ def create_vendor_app() -> FastAPI:
         pay_to=VENDOR_ADDRESS,
     )
     async def get_weather(request: Request):
+        """x402-protected weather endpoint (1 USDT). Returns mock data once paid."""
         return {
             "temperature": 72,
             "condition": "sunny",
@@ -35,8 +36,9 @@ def create_vendor_app() -> FastAPI:
             "source": "x402-weather-api",
         }
 
-    @app.get("/health")
+    @app.get("/health", tags=["health"])
     async def health():
+        """Liveness probe."""
         return {"status": "ok"}
 
     return app

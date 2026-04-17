@@ -1,6 +1,5 @@
 """Entry point for the Web UI demo. Usage: python run_ui.py"""
 
-import asyncio
 import multiprocessing
 import os
 import sys
@@ -34,11 +33,16 @@ def _check_env() -> None:
         sys.exit(1)
 
 
-def _run_facilitator() -> None:
-    """Run the facilitator server in a subprocess."""
-    from src.config import FACILITATOR_PRIVATE_KEY, FACILITATOR_SERVER_PORT
+def _run_facilitator(facilitator_key: str) -> None:
+    """Run the facilitator server in a subprocess.
 
-    os.environ["TRON_PRIVATE_KEY"] = FACILITATOR_PRIVATE_KEY
+    The key is passed as an arg so the parent process's ``TRON_PRIVATE_KEY``
+    (the agent key) is never mutated. The env var is only set inside the
+    child process, where TronFacilitatorSigner reads it on startup.
+    """
+    from src.config import FACILITATOR_SERVER_PORT
+
+    os.environ["TRON_PRIVATE_KEY"] = facilitator_key
     from src.facilitator_server import create_facilitator_app
 
     app = create_facilitator_app()
@@ -63,14 +67,19 @@ def _run_ui() -> None:
 
 
 def main() -> None:
+    from src.config import FACILITATOR_PRIVATE_KEY, setup_logging
+
+    setup_logging()
     _check_env()
 
     print("Starting Preflight x TRON Web UI Demo...")
-    print(f"  Facilitator server: http://127.0.0.1:8403")
-    print(f"  Vendor server:      http://127.0.0.1:8402")
+    print("  Facilitator server: http://127.0.0.1:8403")
+    print("  Vendor server:      http://127.0.0.1:8402")
     print(f"  UI server:          http://127.0.0.1:{UI_SERVER_PORT}")
 
-    facilitator_proc = multiprocessing.Process(target=_run_facilitator, daemon=True)
+    facilitator_proc = multiprocessing.Process(
+        target=_run_facilitator, args=(FACILITATOR_PRIVATE_KEY,), daemon=True
+    )
     facilitator_proc.start()
 
     vendor_proc = multiprocessing.Process(target=_run_vendor, daemon=True)

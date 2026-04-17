@@ -12,15 +12,15 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from starlette.responses import StreamingResponse
 
 from src.config import (
-    DEFAULT_FEE_LIMIT_SUN,
     ICME_API_KEY,
     ICME_POLICY_ID,
     NETWORK,
     NILE_USDT_CONTRACT,
+    PROOF_POLL_TIMEOUT_UI,
     TRON_PRIVATE_KEY,
     TRON_WALLET_ADDRESS,
-    USDT_DECIMALS,
     VENDOR_ADDRESS,
+    Verdict,
     get_scenarios,
     get_treasury_policy,
 )
@@ -46,10 +46,6 @@ async def _pace(seconds: float) -> None:
     await asyncio.sleep(seconds / max(PACE, 0.01))
 
 
-# ZK proofs typically finish in 5-30s; 60s is a safer ceiling for the UI poll.
-PROOF_POLL_TIMEOUT_UI_SECONDS = 60
-
-
 def _sse(event: str, data: dict) -> str:
     """Format an SSE message."""
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
@@ -65,14 +61,19 @@ def create_ui_app() -> FastAPI:
     x402 = X402PaymentFlow(TRON_PRIVATE_KEY)
 
     # ── Serve static HTML ─────────────────────────────────────────────────
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/", response_class=HTMLResponse, tags=["ui"])
     async def index():
+        """Serve the single-page web UI."""
         html_path = STATIC_DIR / "index.html"
         return FileResponse(html_path, media_type="text/html")
 
     # ── Config endpoint ───────────────────────────────────────────────────
-    @app.get("/api/config")
+    @app.get("/api/config", tags=["config"])
     async def get_config():
+        """Return agent/vendor addresses, policy rules, and scenario metadata.
+
+        Consumed once at page load to render the UI. Contains no secrets.
+        """
         scenarios = get_scenarios()
         policy_text = get_treasury_policy()
         rules = [line.strip() for line in policy_text.strip().splitlines() if line.strip()]
@@ -96,8 +97,9 @@ def create_ui_app() -> FastAPI:
         }
 
     # ── Balance endpoint ──────────────────────────────────────────────────
-    @app.get("/api/balance")
+    @app.get("/api/balance", tags=["balance"])
     async def get_balance():
+        """Return the agent wallet's current TRX and USDT balances on Nile."""
         try:
             usdt = tron.get_usdt_balance()
             trx = tron.get_trx_balance()
@@ -107,8 +109,14 @@ def create_ui_app() -> FastAPI:
             return JSONResponse({"error": str(e)}, status_code=500)
 
     # ── Run scenario (SSE stream) ─────────────────────────────────────────
-    @app.get("/api/scenario/{scenario_id}/run")
+    @app.get("/api/scenario/{scenario_id}/run", tags=["scenarios"])
     async def run_scenario(scenario_id: int):
+        """Run a demo scenario and stream events as Server-Sent Events.
+
+        Event sequence: ``intent`` → ``relevance`` → ``solver_start`` →
+        ``solver_result`` → ``settlement`` or ``blocked`` → ``proof_receipt``
+        → ``proof_verified`` → ``done``. Each event payload is JSON.
+        """
         scenarios = get_scenarios()
         scenario = next((s for s in scenarios if s["number"] == scenario_id), None)
         if not scenario:
@@ -142,7 +150,10 @@ def create_ui_app() -> FastAPI:
 
                 should_check = relevance.get("should_check", relevance.get("relevance", True))
                 if not should_check:
-                    yield _sse("done", {"result": "SKIPPED", "detail": "Not relevant to policy"})
+                    yield _sse("done", {
+                        "result": Verdict.SKIPPED.value,
+                        "detail": "Not relevant to policy",
+                    })
                     return
 
                 # Step 3: Solver consensus
@@ -162,19 +173,23 @@ def create_ui_app() -> FastAPI:
                         )
                     else:
                         detail = err_str
-                    yield _sse("done", {"result": "ERROR", "detail": detail})
+                    yield _sse("done", {"result": Verdict.ERROR.value, "detail": detail})
                     return
 
-                verdict = check_result.get("result", "UNKNOWN")
+                verdict = check_result.get("result", Verdict.UNKNOWN.value)
                 llm_r = check_result.get("llm_result", "")
                 ar_r = check_result.get("ar_result", "")
                 z3_r = check_result.get("z3_result", "")
                 # Majority-rules: if LLM + Z3 both SAT, override AR translation failures.
                 # The AR solver sometimes returns "translation ambiguous — fail-closed"
                 # which is a tooling limitation, not a genuine policy violation.
-                if verdict != "SAT" and llm_r == "SAT" and z3_r == "SAT":
+                if (
+                    verdict != Verdict.SAT.value
+                    and llm_r == Verdict.SAT.value
+                    and z3_r == Verdict.SAT.value
+                ):
                     logger.info("Majority override: LLM=SAT Z3=SAT AR=%s → SAT", ar_r)
-                    verdict = "SAT"
+                    verdict = Verdict.SAT.value
                 proof_id = check_result.get("zk_proof_id") or check_result.get("proof_id")
 
                 yield _sse("solver_result", {
@@ -192,7 +207,7 @@ def create_ui_app() -> FastAPI:
                 await _pace(3.5)
 
                 # Step 4: Settlement or blocked
-                if verdict == "SAT" and scenario.get("settle"):
+                if verdict == Verdict.SAT.value and scenario.get("settle"):
                     before_usdt = tron.get_usdt_balance()
                     before_trx = tron.get_trx_balance()
 
@@ -202,8 +217,8 @@ def create_ui_app() -> FastAPI:
                     except Exception as e:
                         logger.error("x402 payment error: %s", e)
                         # Try fallback
-                        tx_hash = _fallback_transfer(
-                            tron, scenario["amount"], scenario["recipient"]
+                        tx_hash = tron.fallback_transfer(
+                            scenario["amount"], scenario["recipient"]
                         )
                         if tx_hash:
                             tx_result = {"success": True, "tx_hash": tx_hash, "fallback": True}
@@ -230,7 +245,7 @@ def create_ui_app() -> FastAPI:
                             "before_trx": round(before_trx, 4),
                             "after_trx": round(before_trx, 4),
                         })
-                elif verdict != "SAT":
+                elif verdict != Verdict.SAT.value:
                     detail = check_result.get("detail", "Policy violation detected")
                     yield _sse("blocked", {
                         "detail": detail,
@@ -255,7 +270,7 @@ def create_ui_app() -> FastAPI:
 
                     try:
                         proof = await preflight.poll_proof(
-                            proof_id, timeout=PROOF_POLL_TIMEOUT_UI_SECONDS
+                            proof_id, timeout=PROOF_POLL_TIMEOUT_UI
                         )
                         if proof.get("error") == "timeout":
                             # Don't overwrite the pending receipt with blanks —
@@ -263,7 +278,7 @@ def create_ui_app() -> FastAPI:
                             logger.warning(
                                 "Proof %s not ready within %ss",
                                 proof_id,
-                                PROOF_POLL_TIMEOUT_UI_SECONDS,
+                                PROOF_POLL_TIMEOUT_UI,
                             )
                         else:
                             yield _sse("proof_receipt", {
@@ -307,7 +322,7 @@ def create_ui_app() -> FastAPI:
 
             except Exception as e:
                 logger.error("Scenario stream error: %s\n%s", e, traceback.format_exc())
-                yield _sse("done", {"result": "ERROR", "detail": str(e)})
+                yield _sse("done", {"result": Verdict.ERROR.value, "detail": str(e)})
 
         return StreamingResponse(
             event_stream(),
@@ -320,26 +335,3 @@ def create_ui_app() -> FastAPI:
         )
 
     return app
-
-
-def _fallback_transfer(tron: TronNileClient, amount: float, recipient: str) -> str | None:
-    """Direct TRC-20 USDT transfer as fallback when x402 flow fails."""
-    try:
-        from tronpy.keys import PrivateKey
-
-        priv = PrivateKey(bytes.fromhex(tron.private_key))
-        contract = tron.client.get_contract(NILE_USDT_CONTRACT)
-        raw_amount = int(amount * (10**USDT_DECIMALS))
-
-        txn = (
-            contract.functions.transfer(recipient, raw_amount)
-            .with_owner(tron.wallet_address)
-            .fee_limit(DEFAULT_FEE_LIMIT_SUN)
-            .build()
-            .sign(priv)
-        )
-        result = txn.broadcast()
-        return result.get("txid", str(result))
-    except Exception as e:
-        logger.error("Fallback transfer error: %s", e)
-        return None

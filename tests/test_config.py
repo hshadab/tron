@@ -2,13 +2,18 @@
 
 from src.config import (
     DEFAULT_FEE_LIMIT_SUN,
+    HTTP_LONG_TIMEOUT,
+    HTTP_SHORT_TIMEOUT,
     MAX_UINT256,
     NILE_USDT_CONTRACT,
     PAYMENT_PERMIT_ADDRESS,
     PREFLIGHT_BASE_URL,
+    PROOF_POLL_TIMEOUT_CLI,
+    PROOF_POLL_TIMEOUT_UI,
     SERVER_STARTUP_DELAY_SECONDS,
     TX_CONFIRM_DELAY_SECONDS,
     USDT_DECIMALS,
+    Verdict,
     get_scenarios,
 )
 
@@ -54,3 +59,21 @@ def test_scenarios_have_required_keys():
 def test_scenario_amounts_positive():
     for scenario in get_scenarios():
         assert scenario["amount"] > 0
+
+
+def test_verdict_enum_values():
+    # Values must match the raw strings the Preflight API returns;
+    # downstream code still does ``verdict == "SAT"`` style comparisons.
+    assert Verdict.SAT.value == "SAT"
+    assert Verdict.UNSAT.value == "UNSAT"
+    assert Verdict.SKIPPED.value == "SKIPPED"
+    assert Verdict.ERROR.value == "ERROR"
+    assert Verdict.UNKNOWN.value == "UNKNOWN"
+    # str subclass so comparisons work naturally
+    assert Verdict.SAT == "SAT"
+
+
+def test_timeouts_are_sane():
+    assert HTTP_SHORT_TIMEOUT > 0
+    assert HTTP_LONG_TIMEOUT >= HTTP_SHORT_TIMEOUT
+    assert PROOF_POLL_TIMEOUT_UI <= PROOF_POLL_TIMEOUT_CLI

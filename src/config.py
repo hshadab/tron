@@ -1,6 +1,13 @@
-"""Constants, env loading, policy text, scenario definitions."""
+"""Constants, env loading, policy text, scenario definitions.
 
+Also exposes shared types (Verdict), timeout constants, and a
+setup_logging() helper so every entry point (demo.py, run_ui.py,
+scripts/*) can configure logging the same way.
+"""
+
+import logging
 import os
+from enum import Enum
 
 from dotenv import load_dotenv
 
@@ -37,6 +44,45 @@ DEFAULT_FEE_LIMIT_SUN = 100_000_000  # 100 TRX in sun
 MAX_UINT256 = 2**256 - 1
 SERVER_STARTUP_DELAY_SECONDS = 3
 TX_CONFIRM_DELAY_SECONDS = 5
+
+# ── HTTP / polling timeouts (seconds) ─────────────────────────────────────
+# All timeouts live here so the demo has one place to tune them.
+HTTP_SHORT_TIMEOUT = 30           # generic GET / small POST
+HTTP_LONG_TIMEOUT = 120           # full 3-solver consensus check
+HTTP_STREAM_TIMEOUT = 300         # SSE streaming policy compilation
+X402_PAYMENT_TIMEOUT = 60         # end-to-end x402 payment flow
+PROOF_POLL_INTERVAL_SECONDS = 1   # how often poll_proof() pings
+PROOF_POLL_TIMEOUT_CLI = 120      # terminal demo — can afford to wait
+PROOF_POLL_TIMEOUT_UI = 60        # web UI — shorter so users aren't stuck
+
+
+# ── Verdict values returned by the Preflight solver ───────────────────────
+class Verdict(str, Enum):
+    """Consensus verdict for a policy check. `str` subclass so string
+    comparisons (e.g. ``verdict == "SAT"``) keep working."""
+
+    SAT = "SAT"        # action satisfies the policy
+    UNSAT = "UNSAT"    # action violates the policy
+    SKIPPED = "SKIPPED"  # relevance check decided the action is out of scope
+    ERROR = "ERROR"    # solver / network failure
+    UNKNOWN = "UNKNOWN"  # unexpected / unparseable response
+
+
+# ── Logging ───────────────────────────────────────────────────────────────
+def setup_logging(level: str | int | None = None) -> None:
+    """Configure root logging once. Idempotent — safe to call from any entry
+    point. Level comes from the ``LOG_LEVEL`` env var (default ``INFO``)
+    unless overridden.
+    """
+    if level is None:
+        level = os.getenv("LOG_LEVEL", "INFO")
+    if isinstance(level, str):
+        level = level.upper()
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
 # ── Treasury policy (used by scripts/setup_policy.py) ─────────────────────
 def get_treasury_policy() -> str:

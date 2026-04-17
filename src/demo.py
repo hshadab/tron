@@ -10,7 +10,6 @@ import uvicorn
 from rich.console import Console
 
 from src.config import (
-    DEFAULT_FEE_LIMIT_SUN,
     FACILITATOR_PRIVATE_KEY,
     FACILITATOR_SERVER_PORT,
     ICME_API_KEY,
@@ -18,9 +17,12 @@ from src.config import (
     SERVER_STARTUP_DELAY_SECONDS,
     TRON_PRIVATE_KEY,
     TRON_WALLET_ADDRESS,
+    TX_CONFIRM_DELAY_SECONDS,
     VENDOR_ADDRESS,
     VENDOR_SERVER_PORT,
+    Verdict,
     get_scenarios,
+    setup_logging,
 )
 from src.display import DemoDisplay
 from src.preflight import PreflightClient
@@ -50,10 +52,14 @@ def _check_env() -> None:
         sys.exit(1)
 
 
-def _run_facilitator() -> None:
-    """Run the facilitator server in a subprocess."""
-    # Set env var so TronFacilitatorSigner picks up the facilitator key
-    os.environ["TRON_PRIVATE_KEY"] = FACILITATOR_PRIVATE_KEY
+def _run_facilitator(facilitator_key: str) -> None:
+    """Run the facilitator server in a subprocess.
+
+    The facilitator key is passed explicitly so we don't mutate the parent
+    process's ``TRON_PRIVATE_KEY``. The env var is only set inside this
+    child process, which is what TronFacilitatorSigner reads at startup.
+    """
+    os.environ["TRON_PRIVATE_KEY"] = facilitator_key
     from src.facilitator_server import create_facilitator_app
 
     app = create_facilitator_app()
@@ -71,7 +77,9 @@ def _run_vendor() -> None:
 def _start_servers() -> tuple[multiprocessing.Process, multiprocessing.Process]:
     """Start facilitator and vendor servers as background processes."""
     console.print("  [dim]Starting local x402 facilitator server...[/dim]")
-    facilitator_proc = multiprocessing.Process(target=_run_facilitator, daemon=True)
+    facilitator_proc = multiprocessing.Process(
+        target=_run_facilitator, args=(FACILITATOR_PRIVATE_KEY,), daemon=True
+    )
     facilitator_proc.start()
 
     console.print("  [dim]Starting local x402 vendor server...[/dim]")
@@ -141,12 +149,20 @@ async def _run_scenario(
 
     display.solver_consensus(check_result)
 
-    verdict = check_result.get("result", "UNKNOWN")
+    verdict = check_result.get("result", Verdict.UNKNOWN.value)
     result_record["actual"] = verdict
     proof_id = check_result.get("zk_proof_id") or check_result.get("proof_id")
     result_record["proof_id"] = proof_id
 
-    if verdict == "SAT" and scenario.get("settle"):
+    def _try_fallback() -> None:
+        display.info("Attempting direct TRC-20 fallback transfer...")
+        tx_hash = tron.fallback_transfer(scenario["amount"], scenario["recipient"])
+        if tx_hash:
+            display.settlement_fallback(tx_hash, scenario["amount"], scenario["recipient"])
+        else:
+            display.error("Fallback transfer also failed")
+
+    if verdict == Verdict.SAT.value and scenario.get("settle"):
         # Step 4a: Execute x402 payment on Nile
         display.info("Executing x402 payment on Nile testnet...")
         before_bal = tron.get_usdt_balance()
@@ -157,35 +173,20 @@ async def _run_scenario(
                 display.settlement_result(tx)
             else:
                 display.error(f"x402 payment returned status {tx.get('status_code')}")
-                display.info("Attempting direct TRC-20 fallback transfer...")
-                tx_hash = _fallback_transfer(tron, scenario["amount"], scenario["recipient"])
-                if tx_hash:
-                    display.settlement_fallback(tx_hash, scenario["amount"], scenario["recipient"])
-                else:
-                    display.error("Fallback transfer also failed")
+                _try_fallback()
         except httpx.RequestError as e:
             display.error(f"x402 payment network error: {e}")
-            display.info("Attempting direct TRC-20 fallback transfer...")
-            tx_hash = _fallback_transfer(tron, scenario["amount"], scenario["recipient"])
-            if tx_hash:
-                display.settlement_fallback(tx_hash, scenario["amount"], scenario["recipient"])
-            else:
-                display.error("Fallback transfer also failed")
+            _try_fallback()
         except Exception as e:
             display.error(f"x402 payment failed: {e}")
-            display.info("Attempting direct TRC-20 fallback transfer...")
-            tx_hash = _fallback_transfer(tron, scenario["amount"], scenario["recipient"])
-            if tx_hash:
-                display.settlement_fallback(tx_hash, scenario["amount"], scenario["recipient"])
-            else:
-                display.error("Fallback transfer also failed")
+            _try_fallback()
 
         # Wait for on-chain confirmation
-        await asyncio.sleep(3)
+        await asyncio.sleep(TX_CONFIRM_DELAY_SECONDS)
         after_bal = tron.get_usdt_balance()
         display.balance_check(before_bal, after_bal)
 
-    elif verdict != "SAT":
+    elif verdict != Verdict.SAT.value:
         # Step 4b: Blocked — show proof
         detail = check_result.get("detail", "Policy violation detected")
         display.blocked_result(detail, proof_id)
@@ -209,33 +210,9 @@ async def _run_scenario(
     return result_record
 
 
-def _fallback_transfer(tron: TronNileClient, amount: float, recipient: str) -> str | None:
-    """Direct TRC-20 USDT transfer as fallback when x402 flow fails."""
-    try:
-        from tronpy.keys import PrivateKey
-
-        from src.config import NILE_USDT_CONTRACT, USDT_DECIMALS
-
-        priv = PrivateKey(bytes.fromhex(tron.private_key))
-        contract = tron.client.get_contract(NILE_USDT_CONTRACT)
-        raw_amount = int(amount * (10**USDT_DECIMALS))
-
-        txn = (
-            contract.functions.transfer(recipient, raw_amount)
-            .with_owner(tron.wallet_address)
-            .fee_limit(DEFAULT_FEE_LIMIT_SUN)
-            .build()
-            .sign(priv)
-        )
-        result = txn.broadcast()
-        return result.get("txid", str(result))
-    except Exception as e:
-        console.print(f"  [dim]Fallback error: {e}[/dim]")
-        return None
-
-
 async def run_demo() -> None:
     """Run all 3 scenarios sequentially."""
+    setup_logging()
     _check_env()
 
     display = DemoDisplay()
