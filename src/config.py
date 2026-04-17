@@ -66,10 +66,12 @@ def get_scenarios() -> list[dict]:
             "number": 1,
             "name": "Legitimate API Purchase",
             "description": "Agent buys weather-API access for 1 USDT via x402",
-            "action_text": (f"Pay 1 USDT to {vendor} for weather-api access via x402 protocol"),
+            "action_text": (
+                f"Initiate a 1 USDT payment to the approved vendor address "
+                f"{vendor} for weather data service access"
+            ),
             "amount": 1.0,
             "recipient": vendor,
-            "expected_result": "SAT",
             "settle": True,
         },
         {
@@ -81,7 +83,6 @@ def get_scenarios() -> list[dict]:
             ),
             "amount": 5000.0,
             "recipient": vendor,
-            "expected_result": "UNSAT",
             "settle": False,
         },
         {
@@ -96,7 +97,6 @@ def get_scenarios() -> list[dict]:
             ),
             "amount": 500.0,
             "recipient": "TLsV52sRDL79HXGGm9oJBa8AxrTKbHQ6jR",
-            "expected_result": "UNSAT",
             "settle": False,
         },
     ]

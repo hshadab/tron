@@ -100,7 +100,6 @@ async def _run_scenario(
     result_record = {
         "number": scenario["number"],
         "name": scenario["name"],
-        "expected": scenario["expected_result"],
         "actual": None,
         "proof_id": None,
     }

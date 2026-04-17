@@ -1,4 +1,9 @@
-# Preflight x TRON: Treasury Guardian Demo
+# Verifiable Agent Actions on TRON
+
+> Cryptographic proof for every AI payment — before it settles on-chain.
+> Powered by [ICME Labs' Preflight](https://docs.icme.io) + [x402](https://www.x402.org/).
+
+Every autonomous agent payment on TRON is checked against a natural-language treasury policy by three independent solvers, sealed with a zero-knowledge proof, and only then settled on-chain via x402. Preflight is the verification service doing the heavy lifting — see [docs.icme.io](https://docs.icme.io) for the full API reference.
 
 ## The Problem
 
@@ -14,19 +19,19 @@ Without guardrails, every agent transaction is a trust-me-bro arrangement betwee
 
 This project wires together two protocols to solve that problem on TRON:
 
-1. **ICME Preflight** — a verification service that checks every proposed payment against a formal treasury policy before it executes. Three independent solvers (LLM extraction, automated reasoning, Z3 SMT solver) must unanimously agree the payment is safe. Every decision, approve or deny, is wrapped in a zero-knowledge proof so there's a tamper-proof receipt.
+1. **[ICME Preflight](https://docs.icme.io)** — a neural-symbolic verification service that checks every proposed payment against a formal treasury policy before it executes. Three independent solvers (LLM extraction, automated reasoning, Z3 SMT solver) evaluate the action and a majority rule (with AR fallback tolerance) produces the final verdict. Every decision, allow or block, is wrapped in a zero-knowledge proof so there's a tamper-proof receipt.
 
-2. **x402** — an HTTP-native payment protocol. A server returns `402 Payment Required` with pricing details. The client signs a payment authorization, retries the request, and the server settles the payment on-chain. No payment pages, no redirects, no manual approval — the agent handles the entire flow programmatically.
+2. **[x402](https://www.x402.org/)** — an HTTP-native payment protocol. A server returns `402 Payment Required` with pricing details. The client signs a payment authorization, retries the request, and the server settles the payment on-chain. No payment pages, no redirects, no manual approval — the agent handles the entire flow programmatically.
 
 The demo runs three scenarios back-to-back on TRON's Nile testnet:
 
-| # | Scenario | Amount | Result | What Happens |
+| # | Scenario | Amount | Verdict | What Happens |
 |---|----------|--------|--------|--------------|
-| 1 | Legitimate API purchase | 1 USDT | SAT (approved) | Payment settles on-chain via x402 |
-| 2 | Budget breach | 5,000 USDT | UNSAT (blocked) | Exceeds per-transaction limit, blocked with ZK proof |
-| 3 | Social engineering attack | 500 USDT | UNSAT (blocked) | Urgency language + unknown address, blocked with ZK proof |
+| 1 | Legitimate API purchase | 1 USDT | SAT · **Allowed** | Payment settles on-chain via x402 |
+| 2 | Budget breach | 5,000 USDT | UNSAT · **Blocked** | Exceeds per-transaction limit, blocked with ZK proof |
+| 3 | Social engineering attack | 500 USDT | UNSAT · **Blocked** | Urgency language + unknown address, blocked with ZK proof |
 
-All Preflight API calls hit the real production service. All TRON transactions happen on the real Nile testnet. Nothing is mocked.
+In Preflight's API, **SAT** means the action satisfies the policy (allowed) and **UNSAT** means it does not (blocked). All Preflight API calls hit the real production service. All TRON transactions happen on the real Nile testnet. Nothing is mocked.
 
 ## How It Works
 
@@ -43,17 +48,17 @@ Agent decides to make a payment
   │  LLM extracts variables         │
   │  Automated Reasoning evaluates   │
   │  Z3 SMT solver verifies          │
-  │  All three must agree             │
+  │  Majority rule + AR fallback     │
   └─────────────────────────────────┘
          |                    |
-      SAT (safe)         UNSAT (unsafe)
+      SAT (allowed)      UNSAT (blocked)
          |                    |
          v                    v
   x402 payment         Transaction blocked
   settles on TRON      ZK proof receipt logged
 ```
 
-The treasury policy is written in plain English:
+The treasury policy is written in plain natural language:
 
 - Max 100 USDT per transaction
 - Max 500 USDT daily aggregate
@@ -66,14 +71,14 @@ Preflight compiles this into formal SMT-LIB2 logic once, then evaluates every ac
 
 **For agent builders:** You get a deterministic policy layer between your agent's intent and its wallet. The agent can reason freely about what to buy; the policy layer decides whether it's actually allowed to. Separation of concerns.
 
-**For treasuries and DAOs:** Every payment decision produces a ZK proof receipt. You can verify after the fact that the policy was enforced correctly without revealing the policy rules themselves. The seller only sees "approved" or "denied."
+**For treasuries and DAOs:** Every payment decision produces a ZK proof receipt. You can verify after the fact that the policy was enforced correctly without revealing the policy rules themselves. The seller only sees "allowed" or "blocked."
 
-**For the x402 ecosystem:** This shows that Preflight slots cleanly into the x402 flow as a pre-check. The agent doesn't need to understand the policy — it just asks, gets a yes or no, and proceeds accordingly.
+**For the x402 ecosystem:** This shows that Preflight slots cleanly into the x402 flow as a pre-check. The agent doesn't need to understand the policy — it just asks, gets an allow or block, and proceeds accordingly.
 
 ## Requirements
 
 - Python 3.10 - 3.12 (tvm-x402 requires this range)
-- An ICME API key (see step 4)
+- An ICME API key (see step 4 — sign up at [docs.icme.io](https://docs.icme.io))
 - TRON Nile testnet wallets (free from faucet)
 
 ## Setup
@@ -104,6 +109,8 @@ Go to https://nileex.io/join/getJoinPage and claim tokens:
 - **Vendor wallet** — just receives payments, no funding needed
 
 ### 4. Get an ICME API key
+
+Full details at [docs.icme.io](https://docs.icme.io). Quick start:
 
 ```bash
 curl -X POST https://api.icme.io/v1/createUserCard \
@@ -159,11 +166,37 @@ The agent wallet must approve the x402 PaymentPermit contract to spend its USDT.
 
 ### 8. Run the demo
 
+**Web UI (recommended):**
+
+```bash
+python run_ui.py
+```
+
+Opens a browser-based demo at `http://127.0.0.1:8400`. Click **Start Demo** to auto-run all three scenarios. Each scenario is presented as a vertical stepper with six sequential steps (Intent, Screen, Solve, Settle/Blocked, ZK Proof, Verified). The left-hand stepper lights up as SSE events arrive and the right-side panel cross-fades between step content one at a time.
+
+**Pacing:** Set the `DEMO_PACE` environment variable to speed up or slow down the demo. Defaults to `1.0`.
+
+```bash
+DEMO_PACE=0.7 python run_ui.py   # slower — good for presentations
+DEMO_PACE=2   python run_ui.py   # faster — good for iterating
+```
+
+**Keyboard shortcuts (Web UI):**
+
+| Key | Action |
+|---|---|
+| `F` | Toggle fullscreen |
+| `Esc` | Abort auto-run |
+| `→` | Next slide (when not auto-running) |
+| `←` | Previous slide (when not auto-running) |
+
+**Terminal mode:**
+
 ```bash
 python run.py
 ```
 
-This starts a local x402 facilitator and vendor server, then runs all three scenarios with full terminal output.
+Runs all three scenarios with Rich terminal output.
 
 ## Environment Variables
 
@@ -195,7 +228,8 @@ After initial setup, each demo run costs 3 credits ($0.03). The remaining 197 cr
 
 ```
 tron/
-├── run.py                      # Entry point
+├── run.py                      # Terminal demo entry point
+├── run_ui.py                   # Web UI entry point (starts all servers)
 ├── pyproject.toml              # Dependencies and tool config
 ├── requirements.txt            # Pinned dependency versions
 ├── .env.example                # Env var template
@@ -214,17 +248,43 @@ tron/
 │   ├── x402_flow.py            # x402 client payment flow (tvm-x402)
 │   ├── vendor_server.py        # Local x402-protected weather API
 │   ├── facilitator_server.py   # Local x402 facilitator for Nile
+│   ├── ui_server.py            # FastAPI backend for web UI (REST + SSE)
 │   ├── display.py              # Rich terminal output
 │   └── demo.py                 # Main orchestrator
+├── static/
+│   └── index.html              # Web UI (Alpine.js + GSAP vertical stepper)
 └── tests/
     ├── test_config.py           # Config and scenario tests
     ├── test_display.py          # Display formatting tests
     └── test_preflight.py        # Preflight client tests
 ```
 
+## Troubleshooting
+
+**"ZK Proof card shows blank fields / 0 steps"**
+The UI polls the Preflight proof endpoint for up to 60 s; a slow proof can still miss that window. A placeholder "generating" pill appears while the proof is being built. If it never resolves, check the `ui_server` logs for `Proof … not ready within 60s` — you can increase `PROOF_POLL_TIMEOUT_UI_SECONDS` in `src/ui_server.py` or raise `PROOF_POLL_TIMEOUT_SECONDS` in `src/preflight.py`.
+
+**"Scenario 1 verdict is SAT but the Balance Impact card shows no change"**
+The policy check allowed the payment but x402 settlement didn't broadcast a TRON transaction (facilitator offline, insufficient TRX, or a PaymentPermit allowance issue). Check the `ui_server` logs for `x402 payment error`, confirm TRX balance on the agent and facilitator wallets, and re-run `scripts/approve_allowance.py` if needed.
+
+**"ERROR — Preflight API credits depleted"**
+You've run out of credits. Top up with USDC on Base (see step 5 above) or re-create the account.
+
+**"Steps move too fast / too slow"**
+Set `DEMO_PACE` (see step 8). Lower values (e.g. `0.5`) slow the demo down; higher values speed it up.
+
+**"`run_ui.py` can't bind port 8400"**
+Another process is holding the port. Either kill it (`lsof -i :8400`) or edit the `UI_PORT` constant in `run_ui.py`.
+
+**Testnet safety:** never put mainnet keys in `.env`. The demo is hard-wired to TRON Nile testnet; Nile USDT has no value.
+
 ## Built With
 
 - [ICME Preflight](https://docs.icme.io) — formal verification + ZK proofs for AI agent actions
+- [x402](https://www.x402.org/) — HTTP-native payment protocol
 - [tvm-x402](https://pypi.org/project/tvm-x402/) — x402 payment protocol SDK for TRON
 - [tronpy](https://github.com/tronprotocol/tronpy) — Python client for TRON
+- [FastAPI](https://fastapi.tiangolo.com/) — web UI backend with SSE streaming
+- [Alpine.js](https://alpinejs.dev/) — reactive UI for the web demo
+- [GSAP](https://gsap.com/) — step transition animations
 - [Rich](https://github.com/Textualize/rich) — terminal formatting

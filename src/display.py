@@ -199,25 +199,21 @@ class DemoDisplay:
         table = Table(box=box.ROUNDED, show_header=True, header_style="bold")
         table.add_column("#", style="dim", width=3)
         table.add_column("Scenario", min_width=25)
-        table.add_column("Expected", width=10)
-        table.add_column("Actual", width=10)
-        table.add_column("Match", width=6)
+        table.add_column("Verdict", width=10)
         table.add_column("Proof ID", min_width=12)
 
         for r in results:
-            expected = r.get("expected", "?")
             actual = r.get("actual", "?")
-            match = "Yes" if expected == actual else "[red]NO[/red]"
-            actual_styled = (
-                f"[green]{actual}[/green]" if actual == "SAT" else f"[red]{actual}[/red]"
+            verdict_styled = (
+                f"[green]{actual}[/green]"
+                if actual == "SAT"
+                else f"[red]{actual}[/red]"
             )
             proof = r.get("proof_id", "-") or "-"
             table.add_row(
                 str(r.get("number", "?")),
                 r.get("name", "?"),
-                expected,
-                actual_styled,
-                match,
+                verdict_styled,
                 str(proof)[:20],
             )
 

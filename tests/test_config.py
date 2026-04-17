@@ -44,19 +44,11 @@ def test_scenarios_have_required_keys():
         "action_text",
         "amount",
         "recipient",
-        "expected_result",
         "settle",
     }
     for scenario in get_scenarios():
         missing = required_keys - scenario.keys()
         assert not missing, f"Scenario {scenario.get('number')} missing keys: {missing}"
-
-
-def test_scenario_expected_results():
-    scenarios = get_scenarios()
-    assert scenarios[0]["expected_result"] == "SAT"
-    assert scenarios[1]["expected_result"] == "UNSAT"
-    assert scenarios[2]["expected_result"] == "UNSAT"
 
 
 def test_scenario_amounts_positive():

@@ -11,7 +11,7 @@ from src.config import PREFLIGHT_BASE_URL
 
 logger = logging.getLogger(__name__)
 
-PROOF_POLL_INTERVAL_SECONDS = 5
+PROOF_POLL_INTERVAL_SECONDS = 1
 PROOF_POLL_TIMEOUT_SECONDS = 120
 
 

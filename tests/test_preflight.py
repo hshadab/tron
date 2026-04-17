@@ -20,7 +20,7 @@ def client():
 def test_client_init(client):
     assert client.api_key == "test-key"
     assert client.policy_id == "test-policy-id"
-    assert "Bearer test-key" in client._headers["Authorization"]
+    assert client._headers["X-API-Key"] == "test-key"
 
 
 def test_client_headers_have_content_type(client):
