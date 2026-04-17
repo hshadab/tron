@@ -27,6 +27,11 @@ class SettleRequest(BaseModel):
     paymentRequirements: PaymentRequirements
 
 
+class FeeQuoteRequest(BaseModel):
+    accept: PaymentRequirements
+    paymentPermitContext: dict | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize the facilitator signer and register mechanisms on startup."""
@@ -55,6 +60,10 @@ def create_facilitator_app() -> FastAPI:
     @app.post("/settle")
     async def settle(request: SettleRequest):
         return await facilitator.settle(request.paymentPayload, request.paymentRequirements)
+
+    @app.post("/fee/quote")
+    async def fee_quote(request: FeeQuoteRequest):
+        return await facilitator.fee_quote(request.accept, request.paymentPermitContext)
 
     @app.get("/health")
     async def health():
